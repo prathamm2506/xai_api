@@ -1,11 +1,14 @@
 """
 FastAPI application for Lung Cancer Classification API.
 """
+# 1️⃣ Disable CUDA / GPU Initialization (before importing TensorFlow)
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import io
 import base64
-import json
-import requests
+import httpx
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -20,6 +23,7 @@ from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
 from .model_loader import model_loader
 from .preprocessing import (
@@ -37,11 +41,22 @@ from PIL import Image
 import numpy as np
 
 
-# Initialize FastAPI app
+# Initialize FastAPI app with modern lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load the model on startup."""
+    try:
+        model_loader.load_model()
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Startup model load failed: {e}")
+    yield
+
 app = FastAPI(
     title="Lung Cancer Classification API",
     description="API for lung cancer detection using DenseNet121 with Grad-CAM explainability",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -103,15 +118,6 @@ class GeminiReportResponse(BaseModel):
     timestamp: str
 
 
-# Initialize model on startup
-@app.on_event("startup")
-async def startup_event():
-    """Load the model on startup."""
-    try:
-        model = model_loader.load_model()
-        print(f"Model loaded. Classes: {model_loader.get_classes()}")
-    except Exception as e:
-        print(f"Warning: Could not load model on startup: {e}")
 
 
 @app.get("/", response_model=HealthResponse)
@@ -174,8 +180,19 @@ async def predict_simple(file: UploadFile = File(...)):
             raise HTTPException(status_code=503, detail=f"Model not available: {str(e)}")
     
     try:
-        # Read and preprocess image
+        # 5️⃣ File Validation & Security Checks
+        # Read and validate file
         contents = await file.read()
+        
+        # File Size Limit (10MB)
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image too large")
+        
+        # Content Type Validation
+        if file.content_type not in ["image/jpeg", "image/png"]:
+            raise HTTPException(status_code=400, detail="Invalid image format")
+        
+        # Read and preprocess image
         image = Image.open(io.BytesIO(contents))
         
         if image.mode != 'RGB':
@@ -185,7 +202,8 @@ async def predict_simple(file: UploadFile = File(...)):
         
         # Get predictions
         model = model_loader.get_model()
-        predictions = model.predict(img_array, verbose=0)
+        # 2️⃣ Fix Keras Input Structure Warning - use named input
+        predictions = model.predict({"input_layer": img_array}, verbose=0)
         
         # Handle different output formats from model.predict
         # Some models return a tuple (output, metadata) or just the output array
@@ -245,9 +263,21 @@ async def predict(file: UploadFile = File(...)):
 
     try:
         # ----------------------------
-        # 1️⃣ Read Image
+        # 5️⃣ File Validation & Security Checks
         # ----------------------------
         contents = await file.read()
+        
+        # File Size Limit (10MB)
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image too large")
+        
+        # Content Type Validation
+        if file.content_type not in ["image/jpeg", "image/png"]:
+            raise HTTPException(status_code=400, detail="Invalid image format")
+        
+        # ----------------------------
+        # 1️⃣ Read Image
+        # ----------------------------
         image = Image.open(io.BytesIO(contents))
 
         if image.mode != "RGB":
@@ -266,7 +296,7 @@ async def predict(file: UploadFile = File(...)):
         # ----------------------------
         # 3️⃣ Prediction
         # ----------------------------
-        predictions = model.predict(img_array, verbose=0)
+        predictions = model.predict({"input_layer": img_array}, verbose=0)
 
         if isinstance(predictions, (tuple, list)):
             predictions = predictions[0]
@@ -301,8 +331,6 @@ async def predict(file: UploadFile = File(...)):
         # ----------------------------
         # 4️⃣ Generate Visualizations (Same as Colab)
         # ----------------------------
-        # from .gradcam import generate_visualizations
-
         layer_name = model_loader.get_last_conv_layer()
 
         visuals = generate_visualizations(
@@ -313,7 +341,7 @@ async def predict(file: UploadFile = File(...)):
 
 
         # visuals contains:
-        # original, heatmap, gradcam, overlay, predicted_class, confidence
+        # original, heatmap, heatmap_array, gradcam, overlay, predicted_class, confidence
 
         images = {
             "original": visuals["original"],
@@ -323,13 +351,10 @@ async def predict(file: UploadFile = File(...)):
         }
 
         # ----------------------------
-        # 5️⃣ Extract Regions from Heatmap
+        # 4️⃣ Avoid Base64 Re-Decoding (Memory Optimization)
         # ----------------------------
-        # Convert base64 heatmap back to numpy for region detection
-        heatmap_base64 = visuals["heatmap"].split(",")[1]
-        heatmap_bytes = base64.b64decode(heatmap_base64)
-        heatmap_pil = Image.open(io.BytesIO(heatmap_bytes)).convert("L")
-        heatmap_np = np.array(heatmap_pil, dtype=np.float32) / 255.0
+        # Use heatmap_array directly instead of re-decoding from base64
+        heatmap_np = visuals["heatmap_array"]
 
         regions = get_attention_regions(heatmap_np, threshold=0.4)
 
@@ -359,7 +384,7 @@ async def predict(file: UploadFile = File(...)):
         }
         
         # Automatically generate Gemini report
-        gemini_report = generate_gemini_report(gemini_data)
+        gemini_report = await generate_gemini_report(gemini_data)
 
         # ----------------------------
         # 8️⃣ Final Response
@@ -436,7 +461,7 @@ def generate_recommendations(classification: str) -> list:
 # Gemini API Integration for Layman's Report
 # ============================================
 
-def generate_gemini_report(analysis_data: dict) -> str:
+async def generate_gemini_report(analysis_data: dict) -> str:
     """
     Generate a comprehensive layman's report using Gemini API.
     The report is dynamically generated based on the actual analysis results.
@@ -556,7 +581,10 @@ IMPORTANT:
             }
         }
         
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        # 3️⃣ Convert Gemini API Call to Async - Use httpx
+        # 7️⃣ Reduce Gemini Timeout from 60 to 30
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, headers=headers, json=payload)
         
         if response.status_code == 200:
             result = response.json()
@@ -649,7 +677,7 @@ async def generate_gemini_report_endpoint(request: GeminiReportRequest):
             "regions": request.regions
         }
         
-        report = generate_gemini_report(analysis_data)
+        report = await generate_gemini_report(analysis_data)
         
         return GeminiReportResponse(
             success=True,

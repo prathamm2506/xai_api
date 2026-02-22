@@ -34,7 +34,7 @@ def make_gradcam_heatmap(model, img_array, layer_name, class_idx=None):
     
     # If no class specified, use predicted class
     if class_idx is None:
-        predictions = model.predict(img_array, verbose=0)
+        predictions = model.predict({"input_layer": img_array}, verbose=0)
         
         # Handle different output formats from model.predict
         if isinstance(predictions, (tuple, list)):
@@ -185,7 +185,7 @@ def generate_visualizations(original_image, model, layer_name):
     img_array = load_and_preprocess_image(original_image)
     
     # Get predictions
-    predictions = model.predict(img_array, verbose=0)
+    predictions = model.predict({"input_layer": img_array}, verbose=0)
     
     # Handle different output formats from model.predict
     if isinstance(predictions, (tuple, list)):
@@ -256,6 +256,7 @@ def generate_visualizations(original_image, model, layer_name):
     return {
         'original': array_to_base64(original_image),
         'heatmap': array_to_base64(heatmap_color),  # Return colorful heatmap
+        'heatmap_array': heatmap_masked,  # Return raw heatmap array for memory optimization
         'gradcam': array_to_base64(overlay_masked),
         'overlay': array_to_base64(overlay_raw),
         'predicted_class': predicted_class,

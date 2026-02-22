@@ -11,4 +11,5 @@ matplotlib
 pydantic
 requests
 python-dotenv
+httpx
 
