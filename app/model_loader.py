@@ -94,7 +94,7 @@ class ModelLoader:
         print("Model loaded successfully!")
         print(f"Input shape: {self._model.input_shape}")
         print(f"Output classes: {self.INDICES_TO_CLASS}")
-        model.trainalbe = False  # Set model to inference mode
+        self._model.trainable = False  # Set model to inference mode
         
         return self._model
     

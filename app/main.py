@@ -301,7 +301,7 @@ async def predict(file: UploadFile = File(...)):
         # ----------------------------
         # 4️⃣ Generate Visualizations (Same as Colab)
         # ----------------------------
-        from gradcam import generate_visualizations
+        from .gradcam import generate_visualizations
 
         layer_name = model_loader.get_last_conv_layer()
 
