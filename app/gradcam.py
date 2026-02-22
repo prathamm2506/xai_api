@@ -86,7 +86,7 @@ def apply_lung_mask(heatmap, image_rgb):
     Returns:
         Masked heatmap with lung regions preserved
     """
-    from preprocessing import create_lung_mask
+    from .preprocessing import create_lung_mask
 
     # Resize heatmap to image size FIRST
     heatmap_resized = cv2.resize(
@@ -174,7 +174,7 @@ def generate_visualizations(original_image, model, layer_name):
     Returns:
         Dictionary containing base64 encoded images
     """
-    from preprocessing import load_and_preprocess_image, IMG_SIZE
+    from .preprocessing import load_and_preprocess_image, IMG_SIZE
     
     # Convert PIL to numpy if needed
     if hasattr(original_image, 'convert'):
