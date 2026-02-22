@@ -72,7 +72,7 @@ class ModelLoader:
         
         if model_path is None:
             # Default path
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             model_path = os.path.join(base_dir, "densenet_focal_phase3.keras")
         
         if not os.path.exists(model_path):
