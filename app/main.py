@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
 load_dotenv(env_path)
 
-from gradcam import generate_visualizations
+from .gradcam import generate_visualizations
 from datetime import datetime
 from typing import Optional
 
@@ -21,13 +21,13 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from model_loader import model_loader
-from preprocessing import (
+from .model_loader import model_loader
+from .preprocessing import (
     load_and_preprocess_image,
     load_image_for_visualization,
     IMG_SIZE
 )
-from gradcam import (
+from .gradcam import (
     make_gradcam_heatmap,
     apply_lung_mask,
     create_overlay,
